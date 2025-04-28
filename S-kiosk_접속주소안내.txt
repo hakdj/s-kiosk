@@ -1,0 +1,37 @@
+📌 S-kiosk 시스템 접속 주소 안내 (Docker 기반)
+
+1️⃣ ✅ 현재 고정 접속 주소 (로컬 PC 기준)
+
+📂 FastAPI (Swagger UI)
+→ http://localhost:8000/docs
+
+📊 Streamlit 관리자 대시보드
+→ http://localhost:8501
+
+
+2️⃣ 🔁 주소가 바뀌는 경우는?
+
+- Docker 설정(`docker-compose.yml`)에서 포트를 직접 바꾼 경우
+- 다른 컴퓨터에서 실행할 경우 (localhost 대신 IP로 접속 필요)
+
+
+3️⃣ 🌐 다른 기기에서 접속하려면?
+
+⚙ 내 PC의 IP 확인 → CMD에서 입력:
+
+    ipconfig
+
+⚡ 예시: IP가 192.168.0.27이라면
+
+- FastAPI: http://192.168.0.27:8000/docs
+- 대시보드: http://192.168.0.27:8501
+
+
+4️⃣ 💡 포트 설정 참고 (docker-compose.yml)
+
+    ports:
+      - "8000:8000"   ← FastAPI
+      - "8501:8501"   ← Streamlit
+
+변경하지 않는 이상 주소는 고정됨!
+

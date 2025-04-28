@@ -1,0 +1,19 @@
+📁 S-kiosk Backend Docker 실행 안내
+
+1️⃣ Docker 실행을 위한 경로 진입 (CMD, PowerShell에서 입력)
+
+cd /d D:\PROJECT_DATA\유앤테크-키오스크\03-program\s_kiosk_backend
+
+2️⃣ 실행 명령어 (처음만 --build 필요)
+
+docker-compose up --build
+
+⚠ 다음부터는 그냥:
+
+docker-compose up
+
+✅ 종료할 땐:
+
+Ctrl + C 로 종료
+또는
+docker-compose down

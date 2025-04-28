@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  s-kiosk:
+    build: .
+    ports:
+      - "8000:8000"   # FastAPI
+      - "8501:8501"   # Streamlit
+    command: >
+      sh -c "uvicorn main:app --host 0.0.0.0 --port 8000 & streamlit run kiosk_dashboard.py --server.port 8501 --server.address 0.0.0.0"
+    volumes:
+      - .:/app
