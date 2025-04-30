@@ -1,27 +1,24 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Optional
-from datetime import datetime
-from typing import List
-from utils.utils import execute_query, init_db
-from config.config import DB_NAME
-from fastapi import Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import Optional, List
+from pydantic import BaseModel
 import sys
 import os
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from database import get_db
-from models import RemoteCommand
-
+# 🔧 sys.path 조작 없이 정식 경로 import
+from app.core.database import get_db, init_db
+from app.models.remote_command import RemoteCommand as CommandModel
+from app.crud.remote_command import resend_command as crud_resend_command
+from app.utils.utils import execute_query
+from app.config.config import DB_NAME
 
 app = FastAPI()
 
 # ✅ 서버 시작할 때 DB 초기화
 init_db()
 
-# Models
+# Pydantic Models (입력용)
 class Payment(BaseModel):
     kiosk_id: str
     amount: int
@@ -34,7 +31,7 @@ class StatusLog(BaseModel):
     message: str
     timestamp: datetime
 
-class RemoteCommand(BaseModel):
+class RemoteCommandCreate(BaseModel):
     kiosk_id: str
     command: str
     result: Optional[str] = "pending"
@@ -45,6 +42,7 @@ class UpdateCommandResult(BaseModel):
     result: str
 
 # API
+
 @app.post("/payment")
 def add_payment(payment: Payment):
     execute_query(
@@ -55,8 +53,7 @@ def add_payment(payment: Payment):
 
 @app.get("/payments")
 def list_payments():
-    payments = execute_query("SELECT * FROM payments", fetch=True)
-    return payments
+    return execute_query("SELECT * FROM payments", fetch=True)
 
 @app.post("/status-log")
 def add_status_log(log: StatusLog):
@@ -68,11 +65,10 @@ def add_status_log(log: StatusLog):
 
 @app.get("/status-logs")
 def list_status_logs():
-    logs = execute_query("SELECT * FROM status_logs", fetch=True)
-    return logs
+    return execute_query("SELECT * FROM status_logs", fetch=True)
 
 @app.post("/remote-command")
-def add_remote_command(cmd: RemoteCommand):
+def add_remote_command(cmd: RemoteCommandCreate):
     execute_query(
         "INSERT INTO remote_commands (kiosk_id, command, result, timestamp) VALUES (?, ?, ?, ?)",
         (cmd.kiosk_id, cmd.command, cmd.result, cmd.timestamp.isoformat())
@@ -86,14 +82,13 @@ def get_pending_commands(kiosk_id: str, result: str = "pending"):
         (kiosk_id, result),
         fetch=True
     )
-    
-    # 명령어를 내려줄 때 received_at을 지금 시간으로 업데이트
+
     for cmd in commands:
         execute_query(
             "UPDATE remote_commands SET received_at = ? WHERE id = ?",
             (datetime.now().isoformat(), cmd["id"])
         )
-    
+
     return commands
 
 @app.patch("/update-command")
@@ -105,7 +100,7 @@ def update_command_result(update: UpdateCommandResult):
     return {"status": "updated"}
 
 @app.post("/remote-command-bulk")
-def add_multiple_remote_commands(cmds: List[RemoteCommand]):
+def add_multiple_remote_commands(cmds: List[RemoteCommandCreate]):
     for cmd in cmds:
         execute_query(
             "INSERT INTO remote_commands (kiosk_id, command, result, timestamp) VALUES (?, ?, ?, ?)",
@@ -113,31 +108,17 @@ def add_multiple_remote_commands(cmds: List[RemoteCommand]):
         )
     return {"status": f"{len(cmds)} commands saved"}
 
-
 @app.get("/remote-commands")
 def list_all_remote_commands():
-    commands = execute_query(
-        "SELECT * FROM remote_commands",
-        fetch=True
-    )
-    return commands
+    return execute_query("SELECT * FROM remote_commands", fetch=True)
 
 @app.post("/resend-command")
-async def resend_command(kiosk_id: str, db: Session = Depends(get_db)):
-    # 1. 재전송할 명령어 찾기
-    command = db.query(RemoteCommand).filter(
-        RemoteCommand.kiosk_id == kiosk_id,
-        RemoteCommand.status == "pending"  # (상황에 따라 수정 가능)
-    ).first()
-
-    if not command:
-        return {"error": "명령어 없음"}
-
-    # 2. 명령어를 실제 키오스크로 보내는 로직 (여기는 네 기존 로직에 맞게 수정)
-    # send_to_kiosk(kiosk_id, command.command_data)
-
-    # 3. 전송 성공했으면 received_at 업데이트
-    command.received_at = datetime.utcnow().isoformat()
-    db.commit()
-
-    return {"message": "명령어 재전송 완료", "kiosk_id": kiosk_id}
+def resend_command_api(kiosk_id: str, db: Session = Depends(get_db)):
+    result = crud_resend_command(db, kiosk_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="명령어 없음")
+    return {
+        "message": "명령어 재전송 완료",
+        "kiosk_id": result.kiosk_id,
+        "received_at": result.received_at
+    }

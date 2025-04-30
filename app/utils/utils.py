@@ -1,12 +1,15 @@
 import sqlite3
 import os
-from config.config import DB_NAME
+from app.config.config import DB_NAME
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, DB_NAME)
+
+# ✅ 프로젝트 루트로 고정
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", DB_NAME)
+DB_PATH = os.path.abspath(DB_PATH)
 
 def execute_query(query: str, params: tuple = (), fetch: bool = False):
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute(query, params)
     result = cursor.fetchall() if fetch else None
@@ -42,7 +45,8 @@ def init_db():
             kiosk_id TEXT,
             command TEXT,
             result TEXT,
-            timestamp TEXT
+            timestamp TEXT,
+            received_at TEXT
         )
     ''')
 

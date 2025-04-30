@@ -7,15 +7,22 @@ import hashlib
 import sys
 import os
 
+
+
+
 # --- [2] 경로 및 서버 설정 ---
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.config import SERVER_URL
+from app.config.config import SERVER_URL
 
 # --- [3] 무조건 제일 먼저 페이지 설정 ---
 st.set_page_config(page_title="S-kiosk 관리자 대시보드", layout="wide")
 
 # --- [4] 🌐 언어 선택 + 번역 사전 ---
 LANGUAGE = st.sidebar.selectbox("🌐 언어 선택 / Language", ("한국어", "English"))
+
+from app.utils.utils import init_db
+init_db()  # ✅ DB 테이블 생성
+
 
 translations = {
     "dashboard_title": {
@@ -219,6 +226,10 @@ def fetch_data(endpoint):
         st.error(f"서버 연결 실패: {e}")
         return []
 
+from app.utils.utils import DB_PATH  # 이건 이미 있을 수도 있음
+st.write(f"📁 Streamlit이 사용 중인 DB 경로: {DB_PATH}")
+
+
 # --- [9-1] 결제 내역 조회 (show_payments) ---
 def show_payments():
     st.subheader(translations["payment_header"][LANGUAGE])
@@ -233,6 +244,10 @@ def show_payments():
 
     min_date = df['시간'].min().date()
     max_date = df['시간'].max().date()
+    if df['금액'].dropna().empty:
+        st.warning("💳 유효한 결제 금액 데이터가 없습니다.")
+        return
+
     min_amount = int(df['금액'].min())
     max_amount = int(df['금액'].max())
 
@@ -320,7 +335,8 @@ def show_status_logs():
         return
 
     df = pd.DataFrame(logs, columns=["ID", "Kiosk ID", "상태", "메시지", "시간"])
-    df['시간'] = pd.to_datetime(df['시간'])
+     # 🔴 수정: 오류 방지용으로 errors='coerce' 추가
+    df['시간'] = pd.to_datetime(df['시간'], errors='coerce')  # 🔴
 
     # 🔎 검색 및 필터
     st.markdown(f"### {translations['search_filter'][LANGUAGE]}")
@@ -330,6 +346,11 @@ def show_status_logs():
 
     status_options = df['상태'].dropna().unique().tolist()
     selected_status = st.multiselect(translations["select_status"][LANGUAGE], options=status_options)
+
+    # 🔴 추가: 유효한 시간값이 없으면 종료
+    if df['시간'].dropna().empty:  # 🔴
+        st.warning("⏱️ 유효한 시간 데이터가 없습니다.")  # 🔴
+        return  # 🔴
 
     min_date = df['시간'].min().date()
     max_date = df['시간'].max().date()
@@ -397,6 +418,32 @@ def show_status_logs():
 
 # --- [9-3] 원격 명령 관리 (show_commands) ---
 def show_commands():
+    # --- 🛠️ 새 명령어 직접 입력해서 전송하기 ---
+    st.subheader("📝 새 명령어 직접 입력")
+
+    with st.form("send_new_command"):
+        new_kiosk_id = st.text_input("Kiosk ID", placeholder="예: kiosk_001")
+        new_command_text = st.text_input("명령어", placeholder="예: reboot")
+
+        submitted = st.form_submit_button("🚀 명령어 전송")
+
+        if submitted:
+            if not new_kiosk_id or not new_command_text:
+                st.warning("Kiosk ID와 명령어를 모두 입력해주세요.")
+            else:
+                new_payload = {
+                    "kiosk_id": new_kiosk_id,
+                    "command": new_command_text,
+                    "result": "pending",
+                    "timestamp": datetime.now().isoformat()
+                }
+                response = requests.post(f"{SERVER_URL}/remote-command", json=new_payload)
+
+                if response.status_code == 200:
+                    st.success("✅ 명령어 전송 완료!")
+                else:
+                    st.error(f"❌ 전송 실패: {response.status_code}")
+
     st.subheader("🛠️ 원격 명령 관리")
 
     # --- 🛠️ 새 명령어 전송 섹션 ---
