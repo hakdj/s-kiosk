@@ -7,8 +7,31 @@ import hashlib
 import sys
 import os
 
+import random
 
 
+# ✅ 캐시 방지 + 안정적 데이터 요청 함수
+def fetch_data(endpoint):
+    try:
+        full_url = f"{SERVER_URL}{endpoint}?nocache={random.randint(1, 99999)}"
+        st.write(f"🔍 요청 URL: {full_url}")  # ✅ 요청 로그
+        response = requests.get(full_url)
+
+        st.write(f"✅ 응답 코드: {response.status_code}")
+        st.write(f"✅ 응답 내용: {response.text[:500]}")  # 최대 500자 미리보기
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"❌ 서버 오류: 상태 코드 {response.status_code}")
+            return []
+    except Exception as e:
+        st.error(f"❌ 요청 실패: {e}")
+        return []
+
+from datetime import datetime
+
+from streamlit_autorefresh import st_autorefresh
 
 # --- [2] 경로 및 서버 설정 ---
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,6 +39,7 @@ from app.config.config import SERVER_URL
 
 # --- [3] 무조건 제일 먼저 페이지 설정 ---
 st.set_page_config(page_title="S-kiosk 관리자 대시보드", layout="wide")
+st_autorefresh(interval=10000, limit=None, key="auto_refresh")  # 10초 간격 새로고침
 
 # --- [4] 🌐 언어 선택 + 번역 사전 ---
 LANGUAGE = st.sidebar.selectbox("🌐 언어 선택 / Language", ("한국어", "English"))
@@ -213,18 +237,6 @@ if not st.session_state['logged_in']:
 st.title(translations["dashboard_title"][LANGUAGE])
 st.info(translations["logged_in_as"][LANGUAGE].format(username=st.session_state['username']))
 
-# --- [8] fetch_data 함수 ---
-def fetch_data(endpoint):
-    try:
-        response = requests.get(f"{SERVER_URL}{endpoint}")
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"서버 오류: {response.status_code}")
-            return []
-    except Exception as e:
-        st.error(f"서버 연결 실패: {e}")
-        return []
 
 from app.utils.utils import DB_PATH  # 이건 이미 있을 수도 있음
 st.write(f"📁 Streamlit이 사용 중인 DB 경로: {DB_PATH}")
@@ -416,18 +428,15 @@ def show_status_logs():
         st.plotly_chart(bar_fig, use_container_width=True)
 
 
-# --- [9-3] 원격 명령 관리 (show_commands) ---
+
 def show_commands():
-    # --- 🛠️ 새 명령어 직접 입력해서 전송하기 ---
     st.subheader("📝 새 명령어 직접 입력")
 
     with st.form("send_new_command"):
         new_kiosk_id = st.text_input("Kiosk ID", placeholder="예: kiosk_001")
         new_command_text = st.text_input("명령어", placeholder="예: reboot")
 
-        submitted = st.form_submit_button("🚀 명령어 전송")
-
-        if submitted:
+        if st.form_submit_button("🚀 명령어 전송"):
             if not new_kiosk_id or not new_command_text:
                 st.warning("Kiosk ID와 명령어를 모두 입력해주세요.")
             else:
@@ -438,7 +447,6 @@ def show_commands():
                     "timestamp": datetime.now().isoformat()
                 }
                 response = requests.post(f"{SERVER_URL}/remote-command", json=new_payload)
-
                 if response.status_code == 200:
                     st.success("✅ 명령어 전송 완료!")
                 else:
@@ -446,40 +454,36 @@ def show_commands():
 
     st.subheader("🛠️ 원격 명령 관리")
 
-    # --- 🛠️ 새 명령어 전송 섹션 ---
-    #send_command_section()
-
-    # --- 📥 데이터 가져오기 ---
     commands = fetch_data("/remote-commands")
 
     if not commands:
         st.info("표시할 명령어가 없습니다.")
         return
 
-    # --- 📄 데이터프레임 변환 ---
-    df = pd.DataFrame(commands, columns=["id", "kiosk_id", "command", "result", "timestamp"])
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df = pd.DataFrame(commands)
+    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    df['received_at'] = pd.to_datetime(df.get('received_at'), errors='coerce')
 
-    # --- 📊 명령어 성공률 카드 ---
+    # 상태 해석
+    df['처리상태'] = df.apply(
+        lambda row: '성공' if row['result'] == '성공'
+        else ('실패' if row['result'] == '실패' else '대기 중'),
+        axis=1
+    )
+
+    st.subheader("📄 명령어 실행 현황 (최근)")
+    st.dataframe(
+        df.sort_values("timestamp", ascending=False)[["id", "kiosk_id", "command", "result", "timestamp", "received_at", "처리상태"]],
+        use_container_width=True
+    )
+
+    # 성공률 카드
     total_count = len(df)
-    success_count = (df['result'] == "성공").sum()
-    success_rate = (success_count / total_count) * 100 if total_count else 0
-
+    success_rate = (df['result'] == "성공").sum() / total_count * 100 if total_count else 0
     st.metric(label="📈 명령어 성공률", value=f"{success_rate:.1f}%")
 
-    # --- 🎨 테이블 색상 적용 (성공 초록, 실패 빨강) ---
-    def color_result(val):
-        color = 'green' if val == "성공" else 'red'
-        return f'color: {color}'
-
-    #st.dataframe(df.style.applymap(color_result, subset=['result']), use_container_width=True)
-
-    # (임시 교체)
-    st.dataframe(df, use_container_width=True)
-
-    # --- 🔥 실패한 명령어 재전송 기능 ---
+    # 실패 재전송
     st.subheader("🔄 실패한 명령어 재전송")
-
     failed_df = df[df['result'] == "실패"]
 
     if not failed_df.empty:
@@ -489,58 +493,36 @@ def show_commands():
         )
 
         if st.button("🚀 선택한 명령어 재전송"):
-            if selected_ids:
-                for selected_id in selected_ids:
-                    # 선택된 ID의 명령어 가져오기
-                    cmd_row = failed_df[failed_df['id'] == selected_id].iloc[0]
-                    payload = {
-                        "kiosk_id": cmd_row['kiosk_id'],
-                        "command": cmd_row['command'],
-                        "result": "pending",  # 다시 전송하니까 상태 pending
-                        "timestamp": datetime.now().isoformat()
-                    }
-                    response = requests.post(f"{SERVER_URL}/remote-command", json=payload)
-
-                    if response.status_code == 200:
-                        st.success(f"ID {selected_id} 명령어 재전송 성공!")
-                    else:
-                        st.error(f"ID {selected_id} 명령어 재전송 실패: {response.status_code}")
-
-            else:
-                st.warning("재전송할 실패 명령어를 선택하세요.")
+            for selected_id in selected_ids:
+                cmd = failed_df[failed_df['id'] == selected_id].iloc[0]
+                payload = {
+                    "kiosk_id": cmd['kiosk_id'],
+                    "command": cmd['command'],
+                    "result": "pending",
+                    "timestamp": datetime.now().isoformat()
+                }
+                response = requests.post(f"{SERVER_URL}/remote-command", json=payload)
+                if response.status_code == 200:
+                    st.success(f"ID {selected_id} 재전송 성공!")
+                else:
+                    st.error(f"ID {selected_id} 재전송 실패: {response.status_code}")
     else:
         st.info("실패한 명령어가 없습니다.")
 
-    # --- 📊 명령별 실행 통계 차트 ---
+    # 명령어별 통계 시각화
     st.subheader("📊 명령어별 실행 통계")
-
     if not df.empty:
-        command_stats = df.groupby(["command", "result"]).size().reset_index(name="count")
+        stats = df.groupby(["command", "result"]).size().reset_index(name="count")
 
-        # Pie Chart
-        pie_fig = px.pie(
-            command_stats,
-            names="command",
-            values="count",
-            title="명령어별 실행 비율",
-            hole=0.4
-        )
+        pie_fig = px.pie(stats, names="command", values="count", title="명령어별 실행 비율", hole=0.4)
         st.plotly_chart(pie_fig, use_container_width=True)
 
-        # Bar Chart
         bar_fig = px.bar(
-            command_stats,
-            x="command",
-            y="count",
-            color="result",
-            text_auto=True,
-            title="명령어별 성공/실패 건수"
+            stats, x="command", y="count", color="result", text_auto=True, title="명령어별 성공/실패 건수"
         )
         st.plotly_chart(bar_fig, use_container_width=True)
-
     else:
         st.info("통계 분석할 명령어 데이터가 없습니다.")
-
 
 
 
@@ -563,3 +545,4 @@ if st.sidebar.button(translations["logout_button"][LANGUAGE]):
     st.session_state['login_attempts'] = 0
     st.success("로그아웃되었습니다. 다시 로그인 해주세요.")
     st.experimental_rerun()
+

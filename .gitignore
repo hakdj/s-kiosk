@@ -1,9 +1,21 @@
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.db
-.env
+*.py[cod]
 *.log
+*.sqlite3
+*.db
+
+# Virtual Environment
+myenv/
+env/
 venv/
-.idea/
+
+# Streamlit
+*.streamlit/
+
+# VSCode
 .vscode/
+
+# 기타
+*.sublime-workspace
+*.sublime-project

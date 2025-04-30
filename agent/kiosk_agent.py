@@ -11,9 +11,13 @@ def get_pending_commands():
         return response.json()
     return []
 
-def report_command_result(command_id, result="success"):
-    payload = {"id": command_id, "result": result}
-    response = requests.patch(f"{SERVER_URL}/update-command", json=payload)
+def report_command_result(command_id, result="성공"):
+    payload = {
+        "id": command_id,
+        "result": result,
+        "received_at": time.strftime("%Y-%m-%dT%H:%M:%S")
+    }
+    response = requests.post(f"{SERVER_URL}/command-result", json=payload)
     return response.status_code == 200
 
 def run_kiosk_loop():

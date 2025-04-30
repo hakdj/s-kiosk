@@ -13,7 +13,12 @@ from app.crud.remote_command import resend_command as crud_resend_command
 from app.utils.utils import execute_query
 from app.config.config import DB_NAME
 
+import app.api.routers.command_result as command_result
+
 app = FastAPI()
+
+app.include_router(command_result.router)
+
 
 # ✅ 서버 시작할 때 DB 초기화
 init_db()
@@ -40,6 +45,12 @@ class RemoteCommandCreate(BaseModel):
 class UpdateCommandResult(BaseModel):
     id: int
     result: str
+
+class CommandResultReport(BaseModel):
+    kiosk_id: str
+    result: str
+    received_at: datetime
+
 
 # API
 
@@ -122,3 +133,4 @@ def resend_command_api(kiosk_id: str, db: Session = Depends(get_db)):
         "kiosk_id": result.kiosk_id,
         "received_at": result.received_at
     }
+
