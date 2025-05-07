@@ -14,11 +14,11 @@ import random
 def fetch_data(endpoint):
     try:
         full_url = f"{SERVER_URL}{endpoint}?nocache={random.randint(1, 99999)}"
-        st.write(f"🔍 요청 URL: {full_url}")  # ✅ 요청 로그
+        #st.write(f"🔍 요청 URL: {full_url}")  # ✅ 요청 로그
         response = requests.get(full_url)
 
-        st.write(f"✅ 응답 코드: {response.status_code}")
-        st.write(f"✅ 응답 내용: {response.text[:500]}")  # 최대 500자 미리보기
+        #st.write(f"✅ 응답 코드: {response.status_code}")
+        #st.write(f"✅ 응답 내용: {response.text[:500]}")  # 최대 500자 미리보기
 
         if response.status_code == 200:
             return response.json()
@@ -239,7 +239,7 @@ st.info(translations["logged_in_as"][LANGUAGE].format(username=st.session_state[
 
 
 from app.utils.utils import DB_PATH  # 이건 이미 있을 수도 있음
-st.write(f"📁 Streamlit이 사용 중인 DB 경로: {DB_PATH}")
+# st.write(f"📁 Streamlit이 사용 중인 DB 경로: {DB_PATH}")
 
 
 # --- [9-1] 결제 내역 조회 (show_payments) ---
@@ -454,6 +454,14 @@ def show_commands():
 
     st.subheader("🛠️ 원격 명령 관리")
 
+    try:
+        kiosk_ids = requests.get(f"{SERVER_URL}/remote-commands").json()
+        unique_ids = set(cmd["kiosk_id"] for cmd in kiosk_ids if "kiosk_id" in cmd)
+        for kid in unique_ids:
+            requests.get(f"{SERVER_URL}/commands", params={"kiosk_id": kid})
+    except Exception as e:
+        st.warning(f"received_at 갱신 요청 실패: {e}")
+
     commands = fetch_data("/remote-commands")
 
     if not commands:
@@ -461,28 +469,45 @@ def show_commands():
         return
 
     df = pd.DataFrame(commands)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-    df['received_at'] = pd.to_datetime(df.get('received_at'), errors='coerce')
 
-    # 상태 해석
-    df['처리상태'] = df.apply(
-        lambda row: '성공' if row['result'] == '성공'
-        else ('실패' if row['result'] == '실패' else '대기 중'),
-        axis=1
+    # 🔹 안전하게 datetime으로 변환
+    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    df['received_at'] = pd.to_datetime(df['received_at'], errors='coerce')
+
+    # 🔹 문자열 포맷으로 출력용 컬럼 생성
+    df['timestamp_str'] = df['timestamp'].apply(
+        lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(x) else '-'
     )
+    df['received_at_str'] = df['received_at'].apply(
+        lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(x) else '-'
+    )
+
+    # 🔹 처리상태 표시
+    df['처리상태'] = df['result'].map({
+        '성공': '성공',
+        '실패': '실패'
+    }).fillna('대기 중')
+
+    # 🔹 timestamp null 정렬 기준 추가
+    df['timestamp_null'] = df['timestamp'].isnull()
 
     st.subheader("📄 명령어 실행 현황 (최근)")
-    st.dataframe(
-        df.sort_values("timestamp", ascending=False)[["id", "kiosk_id", "command", "result", "timestamp", "received_at", "처리상태"]],
-        use_container_width=True
-    )
 
-    # 성공률 카드
+    df_to_show = df.sort_values(by=["timestamp_null", "timestamp"], ascending=[True, False])[
+        ["id", "kiosk_id", "command", "result", "timestamp_str", "received_at_str", "처리상태"]
+    ].rename(columns={
+        "timestamp_str": "timestamp",
+        "received_at_str": "received_at"
+    })
+
+    st.dataframe(df_to_show, use_container_width=True)
+
+    # 🔹 성공률 표시
     total_count = len(df)
     success_rate = (df['result'] == "성공").sum() / total_count * 100 if total_count else 0
     st.metric(label="📈 명령어 성공률", value=f"{success_rate:.1f}%")
 
-    # 실패 재전송
+    # 🔹 실패한 명령어 재전송
     st.subheader("🔄 실패한 명령어 재전송")
     failed_df = df[df['result'] == "실패"]
 
@@ -509,7 +534,7 @@ def show_commands():
     else:
         st.info("실패한 명령어가 없습니다.")
 
-    # 명령어별 통계 시각화
+    # 🔹 명령어별 통계 시각화
     st.subheader("📊 명령어별 실행 통계")
     if not df.empty:
         stats = df.groupby(["command", "result"]).size().reset_index(name="count")
@@ -523,7 +548,6 @@ def show_commands():
         st.plotly_chart(bar_fig, use_container_width=True)
     else:
         st.info("통계 분석할 명령어 데이터가 없습니다.")
-
 
 
 # --- [10] 메뉴 선택 + [11] 로그아웃 버튼 ---

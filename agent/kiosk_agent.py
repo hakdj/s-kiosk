@@ -11,14 +11,19 @@ def get_pending_commands():
         return response.json()
     return []
 
-def report_command_result(command_id, result="성공"):
+def report_command_result(cmd_id, result="성공"):
+    received_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     payload = {
-        "id": command_id,
+        "kiosk_id": KIOSK_ID,
         "result": result,
-        "received_at": time.strftime("%Y-%m-%dT%H:%M:%S")
+        "received_at": received_at
     }
     response = requests.post(f"{SERVER_URL}/command-result", json=payload)
-    return response.status_code == 200
+    if response.status_code == 200:
+        print(f"✅ 명령 결과 보고 완료 (received_at 포함)")
+    else:
+        print(f"❌ 보고 실패: {response.status_code} - {response.text}")
+
 
 def run_kiosk_loop():
     print(f"[{KIOSK_ID}] 키오스크 명령 수신 대기 시작")
@@ -26,8 +31,8 @@ def run_kiosk_loop():
         commands = get_pending_commands()
         if commands:
             for cmd in commands:
-                cmd_id = cmd[0]
-                command_text = cmd[2]
+                cmd_id = cmd["id"]
+                command_text = cmd["command"]
                 print(f"🛠️ 명령 수신: [{cmd_id}] → '{command_text}' 실행 중...")
 
                 # 실제 명령 실행 시뮬레이션
@@ -35,7 +40,7 @@ def run_kiosk_loop():
                 print(f"✅ 명령 [{cmd_id}] 실행 완료 → 결과 보고")
 
                 # 서버에 실행 결과 보고
-                report_command_result(cmd_id, result="success")
+                report_command_result(cmd_id, result="성공")
         else:
             print("📭 대기 중... 새로운 명령 없음.")
         

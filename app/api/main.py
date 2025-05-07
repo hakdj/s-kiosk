@@ -14,11 +14,15 @@ from app.utils.utils import execute_query
 from app.config.config import DB_NAME
 
 import app.api.routers.command_result as command_result
+from app.api.routers import remote_command  # ← 방금 만든 파일
+
+
+
 
 app = FastAPI()
 
 app.include_router(command_result.router)
-
+app.include_router(remote_command.router)
 
 # ✅ 서버 시작할 때 DB 초기화
 init_db()
@@ -86,6 +90,8 @@ def add_remote_command(cmd: RemoteCommandCreate):
     )
     return {"status": "command saved"}
 
+from datetime import datetime
+
 @app.get("/commands")
 def get_pending_commands(kiosk_id: str, result: str = "pending"):
     commands = execute_query(
@@ -94,13 +100,22 @@ def get_pending_commands(kiosk_id: str, result: str = "pending"):
         fetch=True
     )
 
-    for cmd in commands:
-        execute_query(
-            "UPDATE remote_commands SET received_at = ? WHERE id = ?",
-            (datetime.now().isoformat(), cmd["id"])
-        )
+    # ✅ 마이크로초 제거 및 안전한 포맷 변환
+    formatted = []
+    for row in commands:
+        row = dict(row)  # sqlite3.Row → dict로 변환
 
-    return commands
+        for key in ['timestamp', 'received_at']:
+            if row.get(key):
+                try:
+                    dt = datetime.fromisoformat(row[key])
+                    row[key] = dt.strftime('%Y-%m-%d %H:%M:%S')  # 마이크로초 제거
+                except Exception:
+                    pass  # 안전하게 실패 시 그대로 둠
+
+        formatted.append(row)
+
+    return formatted
 
 @app.patch("/update-command")
 def update_command_result(update: UpdateCommandResult):
@@ -134,3 +149,20 @@ def resend_command_api(kiosk_id: str, db: Session = Depends(get_db)):
         "received_at": result.received_at
     }
 
+
+@app.post("/command-result")
+def report_command_result_by_kiosk(data: CommandResultReport):
+    execute_query(
+        """
+        UPDATE remote_commands
+        SET result = ?, received_at = ?
+        WHERE id = (
+            SELECT id FROM remote_commands
+            WHERE kiosk_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        )
+        """,
+        (data.result, data.received_at.isoformat(), data.kiosk_id)
+    )
+    return {"message": "✅ kiosk_id 기반 명령 결과 업데이트 완료"}
